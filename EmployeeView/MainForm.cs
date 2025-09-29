@@ -289,6 +289,12 @@ namespace EmployeeViewer.Ui
                     MessageBox.Show("Дата 'с' должна быть не позже даты 'по'.");
                     return;
                 }
+                if (cbStatStatus.SelectedValue == null)
+                {
+                    MessageBox.Show("В базе данных отсутсвуют статусы");
+                    return;
+                } 
+                
                 btnBuild.Enabled = false;
 
                 int statusId = (int)cbStatStatus.SelectedValue;
