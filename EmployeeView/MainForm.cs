@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Windows.Forms;
-using EmployeeViewer.Data;
+﻿using EmployeeViewer.Data;
 using EmployeeViewer.Models;
-using System.Drawing;
-
+using System.ComponentModel;
 namespace EmployeeViewer.Ui
 {
     public class MainForm : Form
@@ -28,6 +22,9 @@ namespace EmployeeViewer.Ui
         private DataGridView gridStats;
 
         private BindingSource gridSource;
+
+        private CancellationTokenSource _listCts;
+        private CancellationTokenSource _statsCts;
 
         private string currentSortColumn = "last_name";
         private string currentSortDir = "ASC";
@@ -94,16 +91,8 @@ namespace EmployeeViewer.Ui
                 new object[] { true }
             );
 
-            btnSearch.Click += (s, e) => ReloadList();
-            btnReset.Click += (s, e) =>
-            {
-                cbStatus.SelectedIndex = 0;
-                cbDep.SelectedIndex = 0;
-                cbPost.SelectedIndex = 0;
-                tbLastName.Text = "";
-                currentSortColumn = "last_name"; currentSortDir = "ASC";
-                ReloadList();
-            };
+            btnSearch.Click += BtnSearch_Click;
+            btnReset.Click += BtnReset_Click;
 
             tabList.Controls.Add(cbStatus);
             tabList.Controls.Add(cbDep);
@@ -118,10 +107,13 @@ namespace EmployeeViewer.Ui
             cbStatStatus = new ComboBox { Left = 10, Top = 10, Width = 200, DropDownStyle = ComboBoxStyle.DropDownList };
             dpFrom = new DateTimePicker { Left = 220, Top = 10, Width = 150, Format = DateTimePickerFormat.Short, Value = DateTime.Today.AddDays(-30) };
             dpTo = new DateTimePicker { Left = 380, Top = 10, Width = 150, Format = DateTimePickerFormat.Short, Value = DateTime.Today };
+            
             rbHired = new RadioButton { Left = 540, Top = 12, Text = "Приняты", Checked = true };
             rbFired = new RadioButton { Left = 650, Top = 12, Text = "Уволенные" };
+            
             btnBuild = new Button { Left = 760, Top = 8, Width = 120, Text = "Построить" };
-            btnBuild.Click += (s, e) => ReloadStats();
+            btnBuild.Click  += BtnBuild_Click;
+
             gridStats = new DataGridView { Left = 10, Top = 50, Width = 1050, Height = 570, Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom, ReadOnly = true, AllowUserToAddRows = false, AutoGenerateColumns = false };
             gridStats.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Day", HeaderText = "Дата", Width = 160, DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } });
             gridStats.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Count", HeaderText = "Количество", Width = 160 });
@@ -137,50 +129,67 @@ namespace EmployeeViewer.Ui
             tabStats.Controls.Add(btnBuild);
             tabStats.Controls.Add(gridStats);
 
-            Load += MainForm_Load;
-            FormClosed += (s, e) => { _db?.Dispose(); };
+            Load += MainForm_LoadAsync;
+            FormClosed += (s, e) => { _db?.Dispose(); _listCts?.Cancel(); _statsCts?.Cancel(); };
         }
 
-        private void MainForm_Load(object sender, EventArgs e)
+        private async void MainForm_LoadAsync(object sender, EventArgs e)
         {
             try
             {
                 _db = new Db(_connStr);
-                var statuses = _db.GetStatuses();
-                var deps = _db.GetDepartments();
-                var posts = _db.GetPosts();
+
+                ToggleTopInputs(false);
+                var statusesTask = _db.GetStatusesAsync();
+                var depsTask = _db.GetDepartmentsAsync();
+                var postsTask = _db.GetPostsAsync();
+
+                var statuses = await statusesTask;
+                var deps = await depsTask;
+                var posts = await postsTask;
 
                 statuses.Insert(0, new LookupItem { Id = -1, Name = "Все статусы" });
                 deps.Insert(0, new LookupItem { Id = -1, Name = "Все отделы" });
                 posts.Insert(0, new LookupItem { Id = -1, Name = "Все должности" });
 
-                cbStatus.DataSource = statuses;
-                cbStatus.DisplayMember = "Name";
-                cbStatus.ValueMember = "Id";
+                cbStatus.DataSource = statuses; cbStatus.DisplayMember = "Name"; cbStatus.ValueMember = "Id";
+                cbDep.DataSource = deps; cbDep.DisplayMember = "Name"; cbDep.ValueMember = "Id";
+                cbPost.DataSource = posts; cbPost.DisplayMember = "Name"; cbPost.ValueMember = "Id";
 
-                cbDep.DataSource = deps;
-                cbDep.DisplayMember = "Name";
-                cbDep.ValueMember = "Id";
-
-                cbPost.DataSource = posts;
-                cbPost.DisplayMember = "Name";
-                cbPost.ValueMember = "Id";
-
-                cbStatStatus.DataSource = _db.GetStatuses();
+                cbStatStatus.DataSource = await _db.GetStatusesAsync();
                 cbStatStatus.DisplayMember = "Name";
                 cbStatStatus.ValueMember = "Id";
 
-                ReloadList();
-                ReloadStats();
+                await ReloadListAsync();
+                await ReloadStatsAsync();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Ошибка при загрузке: " + ex.Message);
             }
+            finally
+            {
+                ToggleTopInputs(true);
+            }
         }
 
-        private void ReloadList()
+        private void ToggleTopInputs(bool enabled)
         {
+            cbStatus.Enabled = enabled;
+            cbDep.Enabled = enabled;
+            cbPost.Enabled = enabled;
+            tbLastName.Enabled = enabled;
+            btnSearch.Enabled = enabled;
+            btnReset.Enabled = enabled;
+        }
+
+
+        private async Task ReloadListAsync()
+        {
+            _listCts?.Cancel();
+            _listCts = new CancellationTokenSource();
+            var ct = _listCts.Token;
+
             try
             {
                 int? statusId = (cbStatus.SelectedItem as LookupItem)?.Id;
@@ -190,7 +199,7 @@ namespace EmployeeViewer.Ui
                 int? postId = (cbPost.SelectedItem as LookupItem)?.Id;
                 if (postId == -1) postId = null;
 
-                var people = _db.GetPersons(statusId, depId, postId, tbLastName.Text, currentSortColumn, currentSortDir);
+                var people = await _db.GetPersonsAsync(statusId, depId, postId, tbLastName.Text, currentSortColumn, currentSortDir, ct);
 
                 gridSource.DataSource = new BindingList<PersonRow>(people);
             }
@@ -198,10 +207,17 @@ namespace EmployeeViewer.Ui
             {
                 MessageBox.Show("Ошибка при получении данных: " + ex.Message);
             }
+            finally
+            {
+                ToggleTopInputs(true);
+            }
         }
 
-        private void ReloadStats()
+        private async Task ReloadStatsAsync()
         {
+            _statsCts?.Cancel();
+            _statsCts = new CancellationTokenSource();
+            var ct = _statsCts.Token;
             try
             {
                 if (dpFrom.Value.Date > dpTo.Value.Date)
@@ -209,16 +225,35 @@ namespace EmployeeViewer.Ui
                     MessageBox.Show("Дата 'с' должна быть не позже даты 'по'.");
                     return;
                 }
+                btnBuild.Enabled = false;
+
                 int statusId = (int)cbStatStatus.SelectedValue;
                 bool hired = rbHired.Checked;
-                var points = _db.GetStats(statusId, dpFrom.Value.Date, dpTo.Value.Date, hired);
+                var points = await _db.GetStatsAsync(statusId, dpFrom.Value.Date, dpTo.Value.Date, hired, ct);
                 gridStats.DataSource = new BindingList<StatPoint>(points);
             }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 MessageBox.Show("Ошибка при получении статистики: " + ex.Message);
             }
+            finally
+            {
+                btnBuild.Enabled = true;
+            }
         }
+
+        private async void BtnSearch_Click(object sender, EventArgs e) => await ReloadListAsync();
+        private async void BtnReset_Click(object sender, EventArgs e)
+        {
+            cbStatus.SelectedIndex = 0;
+            cbDep.SelectedIndex = 0;
+            cbPost.SelectedIndex = 0;
+            tbLastName.Text = "";
+            currentSortColumn = "last_name"; currentSortDir = "ASC";
+            await ReloadListAsync();
+        }
+        private async void BtnBuild_Click(object sender, EventArgs e) => await ReloadStatsAsync();
 
         private void Grid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
@@ -234,7 +269,7 @@ namespace EmployeeViewer.Ui
             }
         }
 
-        private void Grid_ColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)
+        private async void Grid_ColumnHeaderMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
             var col = grid.Columns[e.ColumnIndex];
             string sortCol = currentSortColumn;
@@ -248,16 +283,13 @@ namespace EmployeeViewer.Ui
                 case "col_date_uneploy": sortCol = "date_uneploy"; break;
                 default: sortCol = "last_name"; break;
             }
-            if (currentSortColumn == sortCol)
-            {
-                currentSortDir = currentSortDir == "ASC" ? "DESC" : "ASC";
-            }
-            else
-            {
-                currentSortColumn = sortCol;
-                currentSortDir = "ASC";
-            }
-            ReloadList();
+            if (currentSortColumn == sortCol) currentSortDir = currentSortDir == "ASC" ? "DESC" : "ASC";
+            else { currentSortColumn = sortCol; currentSortDir = "ASC"; }
+
+            grid.Columns[e.ColumnIndex].HeaderCell.SortGlyphDirection =
+                currentSortDir == "ASC" ? SortOrder.Ascending : SortOrder.Descending;
+
+            await ReloadListAsync();
         }
     }
 }

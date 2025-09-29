@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace EmployeeViewer.Models
+﻿namespace EmployeeViewer.Models
 {
     public class LookupItem
     {

@@ -1,149 +1,132 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
+﻿using System.Data;
 using Microsoft.Data.SqlClient;
 
 namespace EmployeeViewer.Data
 {
-    public class Db : IDisposable
+    public sealed class Db : IDisposable
     {
         private readonly string _connectionString;
-        private readonly SqlConnection _conn;
-
         public Db(string connectionString)
+            => _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+
+        public void Dispose() { }
+
+        private static SqlCommand CreateProc(SqlConnection conn, string procName)
+            => new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };
+
+        public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
         {
-            _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-            _conn = new SqlConnection(_connectionString);
-            _conn.Open();
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1";
+            var r = await cmd.ExecuteScalarAsync(ct);
+            return Convert.ToInt32(r) == 1;
         }
 
-        public void Dispose()
+        public async Task<List<Models.LookupItem>> GetStatusesAsync(CancellationToken ct = default)
         {
-            if (_conn.State != ConnectionState.Closed) _conn.Close();
-            _conn.Dispose();
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = CreateProc(conn, "dbo.usp_Statuses_Get");
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+
+            var list = new List<Models.LookupItem>();
+            while (await rdr.ReadAsync(ct))
+                list.Add(new Models.LookupItem { Id = rdr.GetInt32(0), Name = rdr.GetString(1) });
+            return list;
         }
 
-        private SqlCommand CreateProc(string procName)
+        public async Task<List<Models.LookupItem>> GetDepartmentsAsync(CancellationToken ct = default)
         {
-            var cmd = _conn.CreateCommand();
-            cmd.CommandType = CommandType.StoredProcedure;
-            cmd.CommandText = procName;
-            return cmd;
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = CreateProc(conn, "dbo.usp_Dependencies_Get");
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+
+            var list = new List<Models.LookupItem>();
+            while (await rdr.ReadAsync(ct))
+                list.Add(new Models.LookupItem { Id = rdr.GetInt32(0), Name = rdr.GetString(1) });
+            return list;
         }
 
-        public List<Models.LookupItem> GetStatuses()
+        public async Task<List<Models.LookupItem>> GetPostsAsync(CancellationToken ct = default)
         {
-            using (var cmd = CreateProc("dbo.usp_Statuses_Get"))
-            using (var rdr = cmd.ExecuteReader())
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = CreateProc(conn, "dbo.usp_Posts_Get");
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+
+            var list = new List<Models.LookupItem>();
+            while (await rdr.ReadAsync(ct))
+                list.Add(new Models.LookupItem { Id = rdr.GetInt32(0), Name = rdr.GetString(1) });
+            return list;
+        }
+
+        public async Task<List<Models.PersonRow>> GetPersonsAsync(
+            int? statusId, int? depId, int? postId,
+            string lastNameLike, string sortColumn, string sortDir,
+            CancellationToken ct = default)
+        {
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            await using var cmd = CreateProc(conn, "dbo.usp_Persons_List_v2");
+            cmd.Parameters.Add("@StatusId", SqlDbType.Int).Value = (object?)statusId ?? DBNull.Value;
+            cmd.Parameters.Add("@DepId", SqlDbType.Int).Value = (object?)depId ?? DBNull.Value;
+            cmd.Parameters.Add("@PostId", SqlDbType.Int).Value = (object?)postId ?? DBNull.Value;
+            cmd.Parameters.Add("@LastNameLike", SqlDbType.NVarChar, 100).Value =
+                string.IsNullOrWhiteSpace(lastNameLike) ? (object)DBNull.Value : lastNameLike;
+            cmd.Parameters.Add("@SortColumn", SqlDbType.NVarChar, 50).Value = sortColumn ?? "last_name";
+            cmd.Parameters.Add("@SortDir", SqlDbType.NVarChar, 4).Value =
+                string.Equals(sortDir, "DESC", StringComparison.OrdinalIgnoreCase) ? "DESC" : "ASC";
+
+            var list = new List<Models.PersonRow>();
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+
+            int ordId = rdr.GetOrdinal("id");
+            int ordLn = rdr.GetOrdinal("last_name");
+            int ordFn = rdr.GetOrdinal("first_name");
+            int ordSn = rdr.GetOrdinal("second_name");
+            int ordStatus = rdr.GetOrdinal("status_name");
+            int ordDep = rdr.GetOrdinal("dep_name");
+            int ordPost = rdr.GetOrdinal("post_name");
+            int ordDe = rdr.GetOrdinal("date_employ");
+            int ordDu = rdr.GetOrdinal("date_uneploy");
+
+            while (await rdr.ReadAsync(ct))
             {
-                var list = new List<Models.LookupItem>();
-                while (rdr.Read())
+                list.Add(new Models.PersonRow
                 {
-                    list.Add(new Models.LookupItem
-                    {
-                        Id = rdr.GetInt32(0),
-                        Name = rdr.GetString(1)
-                    });
-                }
-                return list;
+                    Id = rdr.GetInt32(ordId),
+                    LastName = rdr.GetString(ordLn),
+                    FirstName = rdr.IsDBNull(ordFn) ? null : rdr.GetString(ordFn),
+                    SecondName = rdr.IsDBNull(ordSn) ? null : rdr.GetString(ordSn),
+                    StatusName = rdr.GetString(ordStatus),
+                    DepName = rdr.GetString(ordDep),
+                    PostName = rdr.GetString(ordPost),
+                    DateEmploy = rdr.IsDBNull(ordDe) ? (DateTime?)null : rdr.GetDateTime(ordDe),
+                    DateUneploy = rdr.IsDBNull(ordDu) ? (DateTime?)null : rdr.GetDateTime(ordDu)
+                });
             }
+            return list;
         }
 
-        public List<Models.LookupItem> GetDepartments()
+        public async Task<List<Models.StatPoint>> GetStatsAsync(int statusId, DateTime dateFrom, DateTime dateTo, bool hired, CancellationToken ct = default)
         {
-            using (var cmd = CreateProc("dbo.usp_Dependencies_Get"))
-            using (var rdr = cmd.ExecuteReader())
-            {
-                var list = new List<Models.LookupItem>();
-                while (rdr.Read())
-                {
-                    list.Add(new Models.LookupItem { Id = rdr.GetInt32(0), Name = rdr.GetString(1) });
-                }
-                return list;
-            }
-        }
+            await using var conn = new SqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = CreateProc(conn, "dbo.usp_Stats_ByDay");
+            cmd.Parameters.Add("@StatusId", SqlDbType.Int).Value = statusId;
+            cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = dateFrom.Date;
+            cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = dateTo.Date;
+            cmd.Parameters.Add("@IsHired", SqlDbType.Bit).Value = hired;
 
-        public List<Models.LookupItem> GetPosts()
-        {
-            using (var cmd = CreateProc("dbo.usp_Posts_Get"))
-            using (var rdr = cmd.ExecuteReader())
-            {
-                var list = new List<Models.LookupItem>();
-                while (rdr.Read())
-                {
-                    list.Add(new Models.LookupItem { Id = rdr.GetInt32(0), Name = rdr.GetString(1) });
-                }
-                return list;
-            }
-        }
-
-        public List<Models.PersonRow> GetPersons(int? statusId, int? depId, int? postId, string lastNameLike, string sortColumn, string sortDir)
-        {
-            using (var cmd = CreateProc("dbo.usp_Persons_List_v2"))
-            {
-                cmd.Parameters.AddWithValue("@StatusId", (object)statusId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@DepId", (object)depId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@PostId", (object)postId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@LastNameLike", string.IsNullOrWhiteSpace(lastNameLike) ? (object)DBNull.Value : lastNameLike);
-                cmd.Parameters.AddWithValue("@SortColumn", sortColumn ?? "last_name");
-                cmd.Parameters.AddWithValue("@SortDir", string.Equals(sortDir, "DESC", StringComparison.OrdinalIgnoreCase) ? "DESC" : "ASC");
-
-                using (var rdr = cmd.ExecuteReader())
-                {
-                    var list = new List<Models.PersonRow>();
-                    while (rdr.Read())
-                    {
-                        var row = new Models.PersonRow
-                        {
-                            Id = rdr.GetInt32(rdr.GetOrdinal("id")),
-                            LastName = rdr.GetString(rdr.GetOrdinal("last_name")),
-                            FirstName = rdr.GetString(rdr.GetOrdinal("first_name")),
-                            SecondName = rdr.GetString(rdr.GetOrdinal("second_name")),
-                            StatusName = rdr.GetString(rdr.GetOrdinal("status_name")),
-                            DepName = rdr.GetString(rdr.GetOrdinal("dep_name")),
-                            PostName = rdr.GetString(rdr.GetOrdinal("post_name")),
-                            DateEmploy = rdr.IsDBNull(rdr.GetOrdinal("date_employ")) ? (DateTime?)null : rdr.GetDateTime(rdr.GetOrdinal("date_employ")),
-                            DateUneploy = rdr.IsDBNull(rdr.GetOrdinal("date_uneploy")) ? (DateTime?)null : rdr.GetDateTime(rdr.GetOrdinal("date_uneploy"))
-                        };
-                        list.Add(row);
-                    }
-                    return list;
-                }
-            }
-        }
-
-        public List<Models.StatPoint> GetStats(int statusId, DateTime dateFrom, DateTime dateTo, bool hired)
-        {
-            using (var cmd = CreateProc("dbo.usp_Stats_ByDay"))
-            {
-                cmd.Parameters.AddWithValue("@StatusId", statusId);
-                cmd.Parameters.AddWithValue("@DateFrom", dateFrom.Date);
-                cmd.Parameters.AddWithValue("@DateTo", dateTo.Date);
-                cmd.Parameters.AddWithValue("@IsHired", hired);
-
-                using (var rdr = cmd.ExecuteReader())
-                {
-                    var list = new List<Models.StatPoint>();
-                    while (rdr.Read())
-                    {
-                        list.Add(new Models.StatPoint
-                        {
-                            Day = rdr.GetDateTime(0).Date,
-                            Count = rdr.GetInt32(1)
-                        });
-                    }
-                    return list;
-                }
-            }
-        }
-
-        public bool TestConnection()
-        {
-            using (var cmd = _conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT 1";
-                return Convert.ToInt32(cmd.ExecuteScalar()) == 1;
-            }
+            var list = new List<Models.StatPoint>();
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+                list.Add(new Models.StatPoint { Day = rdr.GetDateTime(0).Date, Count = rdr.GetInt32(1) });
+            return list;
         }
     }
 }
