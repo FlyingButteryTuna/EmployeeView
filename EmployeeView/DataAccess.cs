@@ -6,13 +6,11 @@ using static EmployeeViewer.Data.SqlParams;
 
 namespace EmployeeViewer.Data
 {
-    public sealed class Db : IDisposable
+    public sealed class Db
     {
         private readonly string _connectionString;
         public Db(string connectionString)
             => _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-
-        public void Dispose() { }
 
         private static SqlCommand CreateProc(SqlConnection conn, string procName)
             => new SqlCommand(procName, conn) { CommandType = CommandType.StoredProcedure };

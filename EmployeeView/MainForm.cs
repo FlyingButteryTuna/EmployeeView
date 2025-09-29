@@ -67,12 +67,55 @@ namespace EmployeeViewer.Ui
                 ScrollBars = ScrollBars.Vertical,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
             };
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "FioShort", HeaderText = "ФИО", Name = "col_fio", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 220 });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "StatusName", HeaderText = "Статус", Name = "col_status", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 150 });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "DepName", HeaderText = "Отдел", Name = "col_dep", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 200 });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "PostName", HeaderText = "Должность", Name = "col_post", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 200 });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "DateEmploy", HeaderText = "Принят", Name = "col_date_employ", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 120, DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "DateUneploy", HeaderText = "Уволен", Name = "col_date_uneploy", SortMode = DataGridViewColumnSortMode.Programmatic, Width = 120, DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } });
+            grid.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "FioShort", 
+                HeaderText = "ФИО", 
+                Name = "col_fio", 
+                SortMode = DataGridViewColumnSortMode.Programmatic, 
+                Width = 220 
+            });
+            grid.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "StatusName", 
+                HeaderText = "Статус", 
+                Name = "col_status",
+                SortMode = DataGridViewColumnSortMode.Programmatic, 
+                Width = 150 
+            });
+            grid.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "DepName", 
+                HeaderText = "Отдел", 
+                Name = "col_dep", 
+                SortMode = DataGridViewColumnSortMode.Programmatic, Width = 200 
+            });
+            grid.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "PostName", 
+                HeaderText = "Должность", 
+                Name = "col_post", 
+                SortMode = DataGridViewColumnSortMode.Programmatic, 
+                Width = 200 
+            });
+            grid.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "DateEmploy", 
+                HeaderText = "Принят",
+                Name = "col_date_employ", 
+                SortMode = DataGridViewColumnSortMode.Programmatic, 
+                Width = 120,
+                DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } 
+            });
+            grid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "DateUneploy",
+                HeaderText = "Уволен",
+                Name = "col_date_uneploy",
+                SortMode = DataGridViewColumnSortMode.Programmatic,
+                Width = 120,
+                DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" }
+            });
 
             grid.CellFormatting += Grid_CellFormatting;
             grid.ColumnHeaderMouseClick += Grid_ColumnHeaderMouseClick;
@@ -114,9 +157,30 @@ namespace EmployeeViewer.Ui
             btnBuild = new Button { Left = 760, Top = 8, Width = 120, Text = "Построить" };
             btnBuild.Click  += BtnBuild_Click;
 
-            gridStats = new DataGridView { Left = 10, Top = 50, Width = 1050, Height = 570, Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom, ReadOnly = true, AllowUserToAddRows = false, AutoGenerateColumns = false };
-            gridStats.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Day", HeaderText = "Дата", Width = 160, DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } });
-            gridStats.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Count", HeaderText = "Количество", Width = 160 });
+            gridStats = new DataGridView 
+            { 
+                Left = 10, 
+                Top = 50, 
+                Width = 1050, 
+                Height = 570, 
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom, 
+                ReadOnly = true, 
+                AllowUserToAddRows = false, 
+                AutoGenerateColumns = false 
+            };
+            gridStats.Columns.Add(new DataGridViewTextBoxColumn 
+            {
+                DataPropertyName = "Day", 
+                HeaderText = "Дата", 
+                Width = 160, 
+                DefaultCellStyle = new DataGridViewCellStyle { Format = "dd.MM.yyyy" } 
+            });
+            gridStats.Columns.Add(new DataGridViewTextBoxColumn 
+            { 
+                DataPropertyName = "Count", 
+                HeaderText = "Количество", 
+                Width = 160 
+            });
 
             gridStats.Height = tabList.ClientSize.Height - grid.Top - 10;
             gridStats.Width = tabList.ClientSize.Width - 20;
@@ -130,7 +194,7 @@ namespace EmployeeViewer.Ui
             tabStats.Controls.Add(gridStats);
 
             Load += MainForm_LoadAsync;
-            FormClosed += (s, e) => { _db?.Dispose(); _listCts?.Cancel(); _statsCts?.Cancel(); };
+            FormClosed += (s, e) => { _listCts?.Cancel(); _statsCts?.Cancel(); };
         }
 
         private async void MainForm_LoadAsync(object sender, EventArgs e)
